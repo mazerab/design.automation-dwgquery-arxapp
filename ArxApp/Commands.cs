@@ -1,4 +1,4 @@
-﻿using AcETransmit;
+using AcETransmit;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.ApplicationServices.Core;
@@ -29,38 +29,31 @@ namespace ArxApp
         private Database db;
         private Transaction tr;
 
-        public GeneralHelper()
-        {
+        public GeneralHelper() {
             db = Application.DocumentManager.MdiActiveDocument.Database;
             tr = db.TransactionManager.StartTransaction();
         }
 
-        public GeneralHelper(Database db, Transaction tr)
-        {
+        public GeneralHelper(Database db, Transaction tr) {
             this.db = db;
             this.tr = tr;
         }
-        public void Dispose()
-        {
+        public void Dispose() {
             if (tr != null && !tr.IsDisposed)
             {
                 tr.Dispose();
             }
         }
-        public IEnumerable<LayerTableRecord> GetLayers()
-        {
+        public IEnumerable<LayerTableRecord> GetLayers() {
             var table = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-            foreach (ObjectId id in table)
-            {
+            foreach (ObjectId id in table) {
                 yield return (LayerTableRecord)tr.GetObject(id, OpenMode.ForRead);
             }
         }
 
-        public IEnumerable<BlockTableRecord> GetBlocks()
-        {
+        public IEnumerable<BlockTableRecord> GetBlocks() {
             var table = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-            foreach (ObjectId id in table)
-            {
+            foreach (ObjectId id in table) {
                 yield return (BlockTableRecord)tr.GetObject(id, OpenMode.ForRead);
             }
         }
@@ -127,8 +120,7 @@ namespace ArxApp
             /*var res2 = ed.GetString("Specify output sub-folder name");
             if (res2.Status != Autodesk.AutoCAD.EditorInput.PromptStatus.OK)
                 return;*/
-            try
-            {
+            try {
                 //get parameter from input json
                 var parameters = JsonConvert.DeserializeObject<Parameters>(File.ReadAllText(res1.StringResult));
                 //Directory.CreateDirectory(res2.StringResult);
@@ -142,10 +134,8 @@ namespace ArxApp
                     Dependents = new List<Dependent>(),
                     Layers = new List<Layer>()
                 };
-                if (parameters.ExtractLayerNames)
-                {
-                    using (var helper = new GeneralHelper())
-                    {
+                if (parameters.ExtractLayerNames) {
+                    using (var helper = new GeneralHelper()) {
                         var list = helper.GetLayers().ToList();
                         if (list.Count > 0)
                         {
@@ -158,24 +148,48 @@ namespace ArxApp
                         }
                     }
                 }
-                if (parameters.ExtractBlockNames)
-                {
-                    using (var helper = new GeneralHelper())
-                    {
+                if (parameters.ExtractBlockNames) {
+                    using (var helper = new GeneralHelper()) {
                         var list = helper.GetBlocks().ToList();
-                        if (list.Count > 0)
-                        {
+                        if (list.Count > 0) {
                             list.ForEach(block => {
                                 var jsonblock = new Block();
                                 jsonblock.Name = block.Name;
                                 jsonblock.Comments = block.Comments;
+                                jsonblock.Attributes = new List<AttributeDef>();
+                                if (block.HasAttributeDefinitions)
+                                {
+                                    //ed.WriteMessage("\n[INFO] Block name: " + block.Name);
+                                    foreach (ObjectId id in block.GetBlockReferenceIds(true, false))
+                                    {
+                                        if (!(id == ObjectId.Null)) {
+                                            //ed.WriteMessage("\n[INFO]   Block Ref Id: " + id);
+                                            BlockReference blockRef = (BlockReference)id.GetObject(OpenMode.ForRead);
+                                            AttributeCollection attCol = blockRef.AttributeCollection;
+                                            if (attCol.Count > 0) {
+                                                foreach (ObjectId attId in attCol) {
+                                                    if (!(attId == ObjectId.Null)) {
+                                                        AttributeReference attRef = (AttributeReference)attId.GetObject(OpenMode.ForRead);
+                                                        if (!(String.IsNullOrEmpty(attRef.Tag) && String.IsNullOrEmpty(attRef.TextString)))
+                                                        {
+                                                            //ed.WriteMessage("\n[INFO]       Tag: " + attRef.Tag + " | Text: " + attRef.TextString);
+                                                            var jsonAttDef = new AttributeDef();
+                                                            jsonAttDef.Tag = attRef.Tag;
+                                                            jsonAttDef.Text = attRef.TextString;
+                                                            jsonblock.Attributes.Add(jsonAttDef);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 output.Blocks.Add(jsonblock);
                             });
-                        }
+                        }  
                     }
                 }
-                if (parameters.ExtractDependents)
-                {
+                if (parameters.ExtractDependents) {
                     TransmittalFile tf;
                     TransmittalOperation to = new TransmittalOperation();
                     TransmittalInfo ti = to.getTransmittalInfoInterface();
@@ -193,17 +207,14 @@ namespace ArxApp
                     ti.includePlotFile = 1;
                     ti.includeUnloadedXrefDwg = 1;
                     ti.includeXrefDwg = 1;
-                    if (to.addDrawingFile(doc.Name, out tf) == AddFileReturnVal.eFileAdded)
-                    {
+                    if (to.addDrawingFile(doc.Name, out tf) == AddFileReturnVal.eFileAdded) {
                         TransmittalFilesGraph tfg = to.getTransmittalGraphInterface();
                         TransmittalFile rootTF = tfg.getRoot();
                         DisplayDependent(rootTF, output);
-                    }
+                    } 
                 }
                 File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), "results.json"), JsonConvert.SerializeObject(output));
-            }
-            catch (System.Exception e)
-            {
+            } catch (System.Exception e) {
                 ed.WriteMessage("Error: {0}", e);
             }
         }
